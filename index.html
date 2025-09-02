@@ -39,17 +39,48 @@
             const [error, setError] = useState("");
             const [currentThesis, setCurrentThesis] = useState("");
 
-            // Check authentication status
+            // Get authentication token from URL hash or localStorage
+            const getToken = () => {
+                // Check URL hash first (Peerwave redirect)
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                const hashToken = hashParams.get("token");
+                
+                // Check URL search params as backup
+                const searchParams = new URLSearchParams(window.location.search);
+                const searchToken = searchParams.get("token");
+                
+                // Check localStorage for persisted token
+                const storedToken = localStorage.getItem('peerwave_token');
+                
+                const finalToken = hashToken || searchToken || storedToken;
+                
+                // Store token if found for future use
+                if (finalToken && !storedToken) {
+                    localStorage.setItem('peerwave_token', finalToken);
+                }
+                
+                console.log('Token check:', { hashToken, searchToken, storedToken, finalToken });
+                return finalToken;
+            };
+
+            // Check authentication status with better detection
             useEffect(() => {
                 const token = getToken();
-                setIsUserAuthenticated(!!token);
+                const authenticated = !!token;
+                console.log('Authentication status:', { token: token ? 'present' : 'missing', authenticated });
+                setIsUserAuthenticated(authenticated);
+                
+                // Listen for hash changes (when user returns from auth)
+                const handleHashChange = () => {
+                    const newToken = getToken();
+                    const newAuthStatus = !!newToken;
+                    console.log('Hash changed, new auth status:', newAuthStatus);
+                    setIsUserAuthenticated(newAuthStatus);
+                };
+                
+                window.addEventListener('hashchange', handleHashChange);
+                return () => window.removeEventListener('hashchange', handleHashChange);
             }, []);
-
-            // Get authentication token from URL
-            const getToken = () => {
-                const hashParams = new URLSearchParams(window.location.hash.substring(1));
-                return hashParams.get("token");
-            };
 
             // Generate natural task language
             const generateTaskLanguage = () => {
@@ -249,22 +280,22 @@ You: "What specific part interests you?" (Let them guide)`;
                 }
             };
 
-            // Handle authentication - opens in new tab
+            // Handle authentication - improved with status refresh
             const handleAuthenticate = () => {
                 const redirectUrl = encodeURIComponent(window.location.href);
-                const authWindow = window.open(`https://peerwave.ai/auth?redirect=${redirectUrl}`, '_blank');
+                window.open(`https://peerwave.ai/auth?redirect=${redirectUrl}`, '_blank');
+            };
+            
+            // Manual refresh authentication status
+            const refreshAuthStatus = () => {
+                const token = getToken();
+                const authenticated = !!token;
+                console.log('Manual auth refresh:', { token: token ? 'present' : 'missing', authenticated });
+                setIsUserAuthenticated(authenticated);
                 
-                const checkAuth = setInterval(() => {
-                    try {
-                        if (authWindow.closed) {
-                            clearInterval(checkAuth);
-                            const token = getToken();
-                            setIsUserAuthenticated(!!token);
-                        }
-                    } catch (e) {
-                        // Handle cross-origin issues
-                    }
-                }, 1000);
+                if (authenticated) {
+                    setError(""); // Clear any auth-related errors
+                }
             };
 
             const handleSubmit = async (e) => {
@@ -294,7 +325,7 @@ You: "What specific part interests you?" (Let them guide)`;
                 setIsTeacherMode(true);
             };
 
-            // Peerwave Status Component
+            // Peerwave Status Component with debugging
             const PeerwaveStatus = () => (
                 <div className="flex items-center space-x-2 bg-white bg-opacity-10 backdrop-blur-sm rounded-lg px-4 py-2">
                     <div className="flex items-center space-x-2">
@@ -305,19 +336,37 @@ You: "What specific part interests you?" (Let them guide)`;
                     </div>
                     
                     {isUserAuthenticated ? (
-                        <div className="flex items-center space-x-1 text-green-400">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                            <span className="text-xs">Connected</span>
+                        <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-1 text-green-400">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-xs">Connected</span>
+                            </div>
+                            <button
+                                onClick={refreshAuthStatus}
+                                className="text-xs text-white opacity-75 hover:opacity-100"
+                                title="Refresh connection status"
+                            >
+                                ↻
+                            </button>
                         </div>
                     ) : (
-                        <button
-                            onClick={handleAuthenticate}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                        >
-                            Connect
-                        </button>
+                        <div className="flex items-center space-x-2">
+                            <button
+                                onClick={handleAuthenticate}
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                            >
+                                Connect
+                            </button>
+                            <button
+                                onClick={refreshAuthStatus}
+                                className="text-xs text-white opacity-75 hover:opacity-100"
+                                title="Refresh connection status"
+                            >
+                                ↻
+                            </button>
+                        </div>
                     )}
                 </div>
             );
