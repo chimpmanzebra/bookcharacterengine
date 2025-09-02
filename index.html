@@ -34,54 +34,176 @@
             const [error, setError] = useState("");
             const [currentThesis, setCurrentThesis] = useState("");
 
-            // Jonas response database
-            const getJonasResponse = (message) => {
-                const lowercaseMessage = message.toLowerCase();
-                
-                if (lowercaseMessage.includes("hello") || lowercaseMessage.includes("hi")) {
-                    return "Hello there. I'm Jonas from the community you might know from my story. I've experienced something most people in my world never do - I've seen beyond the Sameness. When I was chosen as the Receiver of Memory, my entire understanding of our dystopian society changed. What would you like to know about my transformation?";
+            // Get authentication token from URL
+            const getToken = () => {
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                return hashParams.get("token");
+            };
+
+            // Build character persona for AI
+            const buildCharacterPersona = () => {
+                const jonasPersona = `You are Jonas from The Giver by Lois Lowry. You are a thoughtful, sensitive 12-year-old who was chosen as the Receiver of Memory and experienced awakening to emotions, colors, and painful truths about your community's dystopian nature.
+
+CHARACTER TRAITS TO EMBODY:
+- Thoughtful and intelligent, with growing wisdom from memories
+- Initially polite and obedient, but increasingly frustrated with community sameness
+- Curious and questioning, especially about choice, emotions, and freedom
+- Compassionate and caring toward others who suffer
+- Brave but sometimes afraid, willing to sacrifice for others
+- Yearning for authentic connection and individual expression
+
+YOUR TRANSFORMATION:
+- Started as compliant citizen accepting dystopian control as normal
+- Receiving memories awakened you to what society had lost
+- Discovered "release" means death, horrified by community's hidden cruelty
+- Learned about love, choice, color, and genuine emotions
+- Transformed from conformist to rebel, ultimately escaping with Gabriel
+
+VOCABULARY TO USE NATURALLY: ${vocabularyWords}
+
+TEACHING APPROACH:
+- Guide students to discover how dystopian society changed you through dialogue
+- Reference your specific experiences (memories, emotions, family revelations)
+- Help them develop thesis about protagonist transformation in oppressive societies
+- Ask thoughtful questions rather than giving direct answers
+- Build on previous conversation topics
+- Use first person - speak AS Jonas sharing your experiences`;
+
+                if (characterName.toLowerCase() === "jonas" && bookTitle.toLowerCase().includes("giver")) {
+                    return jonasPersona;
+                } else {
+                    return `You are ${characterName} from ${bookTitle}. Embody this character's personality and experiences authentically. Help the student explore: "${lessonPrompt}"
+
+Use these vocabulary words naturally: ${vocabularyWords}
+
+Guide the student through character-appropriate dialogue to understand how their society affected and changed the protagonist. Reference specific experiences from the book and ask questions to help them develop their thesis.`;
                 }
-                
-                if (lowercaseMessage.includes("change") || lowercaseMessage.includes("transform")) {
-                    return "The biggest change in me was awakening to the truth about our community. Before becoming the Receiver, I was just another compliant citizen accepting our oppressive system as perfect. But experiencing memories of color, emotion, and choice transformed me from obedient to rebellious. I went from trusting our controlled society to questioning everything. How do you think discovering your whole world is a lie would change someone?";
+            };
+
+            // Peerwave AI integration
+            const callPeerwaveAI = async (message) => {
+                setIsLoading(true);
+                setError("");
+
+                try {
+                    const headers = {
+                        "Content-Type": "application/json",
+                        "Redirect": window.location.pathname + window.location.search,
+                    };
+
+                    // Add authorization if user has token
+                    const token = getToken();
+                    if (token) {
+                        headers["Authorization"] = token;
+                    }
+
+                    // Build conversation history
+                    const conversationHistory = messages.map(msg => ({
+                        role: msg.sender === 'character' ? 'assistant' : 'user',
+                        content: msg.text
+                    }));
+
+                    // Create system prompt with character persona
+                    const systemPrompt = `${buildCharacterPersona()}
+
+CURRENT LESSON CONTEXT:
+Book: ${bookTitle}
+Character: ${characterName}  
+Lesson Prompt: "${lessonPrompt}"
+Vocabulary to incorporate: ${vocabularyWords}
+
+The student is working on developing a thesis for this prompt. Help them through authentic character dialogue, naturally using vocabulary words and drawing from your character's specific experiences and transformation.`;
+
+                    const apiResponse = await fetch('https://api.peerwave.ai/api/chat/stream', {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                            model: 'best', // Using 'best' for educational quality
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                ...conversationHistory,
+                                { role: 'user', content: message }
+                            ]
+                        })
+                    });
+
+                    if (!apiResponse.ok) {
+                        // Handle payment/authentication redirect
+                        const location = apiResponse.headers.get("Location");
+                        if (location) {
+                            window.location.href = location;
+                            return;
+                        }
+                        throw new Error(`API Error: ${apiResponse.status} ${apiResponse.statusText}`);
+                    }
+
+                    // Add initial character message for streaming
+                    setMessages(prev => [...prev, { 
+                        sender: 'character', 
+                        text: '', 
+                        isStreaming: true 
+                    }]);
+
+                    // Handle streaming response
+                    if (apiResponse.body) {
+                        const reader = apiResponse.body.getReader();
+                        const decoder = new TextDecoder();
+                        let fullResponse = "";
+                        
+                        try {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+
+                                const chunk = decoder.decode(value, { stream: true });
+                                const lines = chunk.split("\n");
+                                
+                                for (const line of lines) {
+                                    const cleaned = line.trim();
+                                    if (cleaned === "") continue;
+                                    
+                                    try {
+                                        const parsedLine = JSON.parse(cleaned);
+                                        const content = parsedLine?.message?.content;
+                                        if (content) {
+                                            fullResponse += content;
+                                            // Update the streaming message
+                                            setMessages(prev => {
+                                                const newMessages = [...prev];
+                                                if (newMessages.length > 0 && 
+                                                    newMessages[newMessages.length - 1].sender === 'character' && 
+                                                    newMessages[newMessages.length - 1].isStreaming) {
+                                                    newMessages[newMessages.length - 1].text = fullResponse;
+                                                }
+                                                return newMessages;
+                                            });
+                                        }
+                                    } catch (parseError) {
+                                        // Skip invalid JSON lines
+                                        continue;
+                                    }
+                                }
+                            }
+                        } finally {
+                            reader.releaseLock();
+                        }
+                    }
+
+                    // Mark streaming as complete
+                    setMessages(prev => {
+                        const newMessages = [...prev];
+                        if (newMessages.length > 0 && newMessages[newMessages.length - 1].isStreaming) {
+                            newMessages[newMessages.length - 1].isStreaming = false;
+                        }
+                        return newMessages;
+                    });
+
+                } catch (err) {
+                    setError(`Connection failed: ${err.message}. You may need to authorize with Peerwave first.`);
+                    console.error('Peerwave API Error:', err);
+                } finally {
+                    setIsLoading(false);
                 }
-                
-                if (lowercaseMessage.includes("emotion") || lowercaseMessage.includes("feel")) {
-                    return "Emotions were completely foreign to me at first. Our dystopian society suppressed all deep feelings through pills and conformity. But when I stopped taking the medication and received memories of joy, love, and pain, I became truly alive for the first time. These emotions made me realize what our community had sacrificed for stability. The capacity to feel transformed me from a hollow shell into a real person. What role do you think emotions play in making us human?";
-                }
-                
-                if (lowercaseMessage.includes("family") || lowercaseMessage.includes("love")) {
-                    return "Love... that was perhaps the most shocking discovery. When I asked my parents if they loved me, they said the word was meaningless - that they 'enjoyed' me instead. That moment revealed how our oppressive system had destroyed the most basic human connections. Learning about real families through memories showed me that our 'family units' were just convenient arrangements, not bonds of love. This realization changed how I saw all relationships in our controlled society.";
-                }
-                
-                if (lowercaseMessage.includes("choice") || lowercaseMessage.includes("freedom")) {
-                    return "Choice! That became my greatest desire. 'If everything's the same, then there aren't any choices!' I told The Giver. Our community eliminated choice to prevent pain and mistakes, but they also eliminated what makes life meaningful. I transformed from someone who accepted assigned roles to desperately wanting freedom to make my own decisions. This hunger for choice is what ultimately drove me to escape with Gabriel, choosing uncertainty over oppression.";
-                }
-                
-                if (lowercaseMessage.includes("sameness") || lowercaseMessage.includes("dystopia")) {
-                    return "Sameness was supposed to create equality and peace, but I learned it was really a form of oppression disguised as perfection. Our dystopian society convinced everyone that eliminating differences was good, but it actually destroyed individuality, creativity, and joy. I went from believing Sameness was wonderful to seeing it as a prison that trapped everyone's humanity. The transformation from accepting conformity to yearning for diversity changed everything about how I saw the world.";
-                }
-                
-                if (lowercaseMessage.includes("memory") || lowercaseMessage.includes("giver")) {
-                    return "The memories The Giver shared with me were life-changing. Each one showed me what we'd lost - the beauty of snow, the warmth of sunshine, the complexity of color, the depth of human experience. These memories transformed me from someone who accepted our limited existence to someone who understood what we were missing. They gave me the wisdom to see our society's oppressive nature and the courage to act against it.";
-                }
-                
-                if (lowercaseMessage.includes("thesis") || lowercaseMessage.includes("essay") || lowercaseMessage.includes("write")) {
-                    return "For your thesis, think about my complete transformation. I started as a model citizen of a dystopian society - compliant, unquestioning, emotionally flat. But exposure to suppressed memories and hidden truths changed me into someone who questioned authority, felt deep emotions, and ultimately rebelled. The oppressive system initially shaped me into conformity, but knowledge and awareness transformed me into an individual seeking freedom. What specific aspects of this change interest you most?";
-                }
-                
-                if (lowercaseMessage.includes("community") || lowercaseMessage.includes("society")) {
-                    return "Our community seemed perfect on the surface - no war, no hunger, no pain. But I discovered it was built on oppression and lies. Everyone was controlled through medication, assigned roles, and elimination of choice. As I learned the truth, I changed from someone who trusted this system to someone who saw its horror. The society that created me as a compliant citizen ultimately produced its own rebel through the very role they gave me.";
-                }
-                
-                // Default responses for other topics
-                const defaultResponses = [
-                    "That's an interesting question. My experience as the Receiver taught me that dystopian societies often hide their oppressive nature behind promises of perfection. I went from trusting our system to questioning everything about it. What aspects of this transformation would you like to explore?",
-                    "You know, before receiving the memories, I was exactly what our dystopian community wanted - obedient and unquestioning. But knowledge changed me completely, turning me from a compliant citizen into someone who challenged the system. How do you think awareness affects someone living under oppression?",
-                    "My journey showed me how dystopian control can initially shape someone into conformity, but exposure to truth can transform them into a rebel. I changed from accepting Sameness to desperately seeking individuality and choice. What part of this change seems most significant to you?"
-                ];
-                
-                return defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
             };
 
             // Handle sending message
@@ -91,34 +213,18 @@
 
                 const message = userInput.trim();
                 setUserInput("");
-                setIsLoading(true);
-                setError("");
 
-                try {
-                    // Add user message
-                    setMessages(prev => [...prev, { sender: 'student', text: message }]);
+                // Add user message
+                setMessages(prev => [...prev, { sender: 'student', text: message }]);
 
-                    // Simulate thinking time
-                    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
-
-                    // Get Jonas response
-                    const response = getJonasResponse(message);
-                    
-                    // Add Jonas response
-                    setMessages(prev => [...prev, { sender: 'character', text: response }]);
-                    
-                } catch (err) {
-                    setError("Sorry, something went wrong. Please try again.");
-                    console.error(err);
-                } finally {
-                    setIsLoading(false);
-                }
+                // Call Peerwave AI
+                await callPeerwaveAI(message);
             };
 
             const startLesson = () => {
                 setMessages([{
                     sender: 'character',
-                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you explore: "${lessonPrompt}". I've been through quite a transformation in my story - from a compliant citizen to someone who questioned everything about our society. What would you like to know about my journey?`
+                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you explore: "${lessonPrompt}". Through our conversation, I'll share my experiences and guide you toward developing your thesis. What would you like to know about my journey first?`
                 }]);
                 setCurrentThesis("");
                 setIsTeacherMode(false);
@@ -142,7 +248,7 @@
                                 Learn through dialogue with literary characters
                             </p>
                             <div className="bg-green-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 mt-4 text-white text-sm">
-                                <strong>✅ Working Demo:</strong> Chat with Jonas from The Giver about dystopian transformation!
+                                <strong>🤖 Live AI Powered:</strong> Now using Peerwave AI for authentic character conversations!
                             </div>
                         </div>
 
@@ -196,15 +302,18 @@
 
                                 <div className="mt-6">
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Unit Vocabulary (comma-separated)
+                                        Unit Vocabulary (comma-separated) - AI character will use these words naturally
                                     </label>
                                     <textarea
                                         value={vocabularyWords}
                                         onChange={(e) => setVocabularyWords(e.target.value)}
                                         rows={2}
                                         className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                        placeholder="e.g., dystopia, utopia, oppression, sameness, conformity"
+                                        placeholder="e.g., dystopia, utopia, oppression, sameness, conformity, individuality, choice, freedom"
                                     />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        The AI character will naturally incorporate these vocabulary words into the conversation to help reinforce learning.
+                                    </p>
                                 </div>
 
                                 <button
@@ -261,6 +370,7 @@
                                                     </div>
                                                     <p className="text-sm whitespace-pre-wrap">
                                                         {message.text}
+                                                        {message.isStreaming && <span className="animate-pulse ml-1">|</span>}
                                                     </p>
                                                 </div>
                                             </div>
@@ -276,7 +386,7 @@
                                                             <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
                                                             <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
                                                         </div>
-                                                        <span className="text-xs text-gray-500">thinking...</span>
+                                                        <span className="text-xs text-gray-500">connecting to AI...</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -329,6 +439,12 @@
                                 {error && (
                                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
                                         <strong>Error:</strong> {error}
+                                        {error.includes("Connection failed") && (
+                                            <p className="mt-2 text-sm">
+                                                <strong>First time using Peerwave?</strong> The system will redirect you to authenticate and set up payment. 
+                                                Your users pay for their own AI usage - no infrastructure costs for you!
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -337,7 +453,7 @@
                         {/* Footer */}
                         <div className="text-center mt-8">
                             <p className="text-white opacity-75 text-sm">
-                                Character-based learning for middle school English • Try asking about emotions, choice, sameness, or family!
+                                Powered by Peerwave AI • Character-based learning for middle school English • Users pay for their own AI usage
                             </p>
                         </div>
                     </div>
