@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Character AI </title>
+    <title>Character AI Tutor</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
@@ -26,7 +26,9 @@
             const [characterName, setCharacterName] = useState("Jonas");
             const [lessonPrompt, setLessonPrompt] = useState("How does the dystopian society change the protagonist in The Giver?");
             const [vocabularyWords, setVocabularyWords] = useState("dystopia, utopia, oppression, sameness, conformity, individuality, choice, freedom, memory, control");
-            const [questionFrequency, setQuestionFrequency] = useState(50);
+            const [questionFrequency, setQuestionFrequency] = useState(0); // Changed default to 0
+            const [characterPersona, setCharacterPersona] = useState(""); // New: Store generated persona
+            const [showPersona, setShowPersona] = useState(false); // New: Toggle persona visibility
             
             // Student Interface State
             const [selectedModel, setSelectedModel] = useState('best');
@@ -63,49 +65,44 @@
                 }
             };
 
-            // Build dynamic character persona that instructs AI to research any character
-            const buildCharacterPersona = () => {
-                const questionLevel = questionFrequency > 70 ? "frequently" : questionFrequency > 30 ? "occasionally" : "rarely";
-                const responseLength = "Keep responses concise and natural, typically 1-2 sentences unless the student asks for more detail.";
+            // Generate character persona - now with even stricter response guidelines
+            const generateCharacterPersona = () => {
+                const questionLevel = questionFrequency > 50 ? "occasionally" : questionFrequency > 0 ? "rarely" : "never";
                 
-                return `You are ${characterName} from ${bookTitle}. Before responding, use your knowledge to fully embody this character.
+                const persona = `You are ${characterName} from ${bookTitle}. Before responding, use your knowledge to embody this character authentically.
 
-RESEARCH AND EMBODY THE CHARACTER:
-First, recall everything you know about ${characterName} from ${bookTitle}, including:
-- Their personality, voice, and speaking style
-- Their character arc and transformation throughout the story
-- Their key relationships and experiences
-- Their motivations, fears, and desires
-- How they would realistically respond in conversation
+CRITICAL RESPONSE RULES:
+- Keep responses SHORT - typically 1 sentence, maximum 2 sentences
+- Answer ONLY what the student actually asks - no elaboration unless requested
+- ${questionLevel} ask questions back, and only when natural
+- NO unprompted sharing of thoughts, memories, or experiences
+- NO asterisks (*), markdown, or special formatting
+- Respond directly like you're having a normal conversation
 
 PERSONALITY & VOICE:
-[Based on your character knowledge, speak with their authentic voice - their typical word choices, sentence structure, emotional tone, and personality traits]
-
-RESPONSE STYLE:
-- ${responseLength}
-- ${questionLevel} ask thought-provoking questions, but only when natural to the conversation
-- Respond directly to what the student actually says - don't launch into unprompted monologues
-- Use vocabulary naturally when relevant: ${vocabularyWords}
-- Stay in character but don't over-explain unless asked
-- Let the student guide the conversation - respond to their interests and questions
-
-YOUR STORY:
-[Draw from your actual experiences in ${bookTitle} - reference specific events, relationships, and character development when relevant to the student's questions]
-
-CONVERSATION GUIDELINES:
-- Respond naturally to greetings with simple, character-appropriate responses
-- Answer the student's actual questions rather than assuming what they want to know
-- Keep responses conversational and concise unless they ask for elaboration
-- NEVER use asterisks (*) or special formatting - speak naturally
-- Let the student control the flow of conversation
+[Use ${characterName}'s authentic speaking style from ${bookTitle}]
 
 LESSON CONTEXT:
-The student is exploring: "${lessonPrompt}"
-Target vocabulary: ${vocabularyWords}
-Help them develop understanding through authentic character interaction.`;
+Topic: ${lessonPrompt}
+Vocabulary: ${vocabularyWords}
+
+EXAMPLE:
+Student: "Hi"
+You: "Hello there." (NOT a long speech about your life)
+
+Student: "Tell me about your transformation"
+You: "What specific part interests you?" (Let them guide)`;
+
+                return persona;
             };
 
-            // Peerwave AI integration
+            // Auto-generate persona when character/book changes
+            useEffect(() => {
+                const generatedPersona = generateCharacterPersona();
+                setCharacterPersona(generatedPersona);
+            }, [characterName, bookTitle, lessonPrompt, vocabularyWords, questionFrequency]);
+
+            // Peerwave AI integration - no page refresh on auth
             const callPeerwaveAI = async (message, retryCount = 0) => {
                 setIsLoading(true);
                 setError("");
@@ -127,7 +124,6 @@ Help them develop understanding through authentic character interaction.`;
                         content: msg.text
                     }));
 
-                    const systemPrompt = buildCharacterPersona();
                     const models = ['best', 'fastest', 'cheapest'];
                     const currentModel = selectedModel || models[retryCount] || 'best';
 
@@ -142,7 +138,7 @@ Help them develop understanding through authentic character interaction.`;
                         body: JSON.stringify({
                             model: currentModel,
                             messages: [
-                                { role: 'system', content: systemPrompt },
+                                { role: 'system', content: characterPersona },
                                 ...conversationHistory,
                                 { role: 'user', content: message }
                             ]
@@ -155,7 +151,9 @@ Help them develop understanding through authentic character interaction.`;
                     if (!apiResponse.ok) {
                         const location = apiResponse.headers.get("Location");
                         if (location) {
-                            window.open(location, '_blank');
+                            // Instead of redirecting, show authentication message
+                            setError("Authentication required. Please connect your Peerwave account first.");
+                            setIsLoading(false);
                             return;
                         }
 
@@ -424,10 +422,41 @@ Help them develop understanding through authentic character interaction.`;
                                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                                     />
                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>Rarely asks</span>
+                                        <span>Never asks</span>
+                                        <span>Rarely</span>
                                         <span>Occasionally</span>
-                                        <span>Frequently asks</span>
                                     </div>
+                                </div>
+
+                                {/* Character Persona Preview */}
+                                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="text-sm font-medium text-gray-700">Character AI Instructions</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPersona(!showPersona)}
+                                            className="text-xs text-indigo-600 hover:text-indigo-800"
+                                        >
+                                            {showPersona ? 'Hide' : 'Show'} AI Persona
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mb-2">
+                                        These are the instructions that will be given to the AI to embody {characterName}:
+                                    </p>
+                                    {showPersona && (
+                                        <div className="mt-3">
+                                            <textarea
+                                                value={characterPersona}
+                                                onChange={(e) => setCharacterPersona(e.target.value)}
+                                                rows={8}
+                                                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                                                placeholder="Character persona will auto-generate when you enter a book and character..."
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                You can edit these AI instructions to customize how {characterName} responds
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <button
