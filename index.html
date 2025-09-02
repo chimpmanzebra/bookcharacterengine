@@ -20,67 +20,57 @@
         const { useState, useEffect } = React;
 
         const CharacterTutorApp = () => {
+            // Simple authentication state - starts as false for everyone
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [isLoading, setIsLoading] = useState(true);
+            
             // Teacher Configuration State
             const [isTeacherMode, setIsTeacherMode] = useState(true);
             const [bookTitle, setBookTitle] = useState("The Giver");
             const [characterName, setCharacterName] = useState("Jonas");
             const [lessonPrompt, setLessonPrompt] = useState("How does the dystopian society change the protagonist in The Giver?");
             const [vocabularyWords, setVocabularyWords] = useState("dystopia, utopia, oppression, sameness, conformity, individuality, choice, freedom, memory, control");
-            const [questionFrequency, setQuestionFrequency] = useState(0); // Changed default to 0
-            const [characterPersona, setCharacterPersona] = useState(""); // New: Store generated persona
-            const [showPersona, setShowPersona] = useState(false); // New: Toggle persona visibility
+            const [questionFrequency, setQuestionFrequency] = useState(0);
+            const [characterPersona, setCharacterPersona] = useState("");
+            const [showPersona, setShowPersona] = useState(false);
             
             // Student Interface State
             const [selectedModel, setSelectedModel] = useState('best');
-            const [isUserAuthenticated, setIsUserAuthenticated] = useState(false);
             const [messages, setMessages] = useState([]);
             const [userInput, setUserInput] = useState("");
-            const [isLoading, setIsLoading] = useState(false);
+            const [isProcessing, setIsProcessing] = useState(false);
             const [error, setError] = useState("");
             const [currentThesis, setCurrentThesis] = useState("");
 
-            // Get authentication token from URL hash or localStorage
-            const getToken = () => {
-                // Check URL hash first (Peerwave redirect)
-                const hashParams = new URLSearchParams(window.location.hash.substring(1));
-                const hashToken = hashParams.get("token");
-                
-                // Check URL search params as backup
-                const searchParams = new URLSearchParams(window.location.search);
-                const searchToken = searchParams.get("token");
-                
-                // Check localStorage for persisted token
-                const storedToken = localStorage.getItem('peerwave_token');
-                
-                const finalToken = hashToken || searchToken || storedToken;
-                
-                // Store token if found for future use
-                if (finalToken && !storedToken) {
-                    localStorage.setItem('peerwave_token', finalToken);
-                }
-                
-                console.log('Token check:', { hashToken, searchToken, storedToken, finalToken });
-                return finalToken;
-            };
-
-            // Check authentication status with better detection
+            // Check for returning users on load
             useEffect(() => {
-                const token = getToken();
-                const authenticated = !!token;
-                console.log('Authentication status:', { token: token ? 'present' : 'missing', authenticated });
-                setIsUserAuthenticated(authenticated);
-                
-                // Listen for hash changes (when user returns from auth)
-                const handleHashChange = () => {
-                    const newToken = getToken();
-                    const newAuthStatus = !!newToken;
-                    console.log('Hash changed, new auth status:', newAuthStatus);
-                    setIsUserAuthenticated(newAuthStatus);
-                };
-                
-                window.addEventListener('hashchange', handleHashChange);
-                return () => window.removeEventListener('hashchange', handleHashChange);
+                // Brief loading period, then check if user is returning with token
+                setTimeout(() => {
+                    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                    const searchParams = new URLSearchParams(window.location.search);
+                    const token = hashParams.get("token") || searchParams.get("token");
+                    
+                    if (token) {
+                        // User returned from Peerwave authentication
+                        localStorage.setItem('peerwave_token', token);
+                        setIsAuthenticated(true);
+                        // Clean URL
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    } else {
+                        // Check if user was previously authenticated
+                        const storedToken = localStorage.getItem('peerwave_token');
+                        if (storedToken) {
+                            setIsAuthenticated(true);
+                        }
+                    }
+                    setIsLoading(false);
+                }, 500);
             }, []);
+
+            // Get stored token for API calls
+            const getToken = () => {
+                return localStorage.getItem('peerwave_token');
+            };
 
             // Generate natural task language
             const generateTaskLanguage = () => {
@@ -96,7 +86,7 @@
                 }
             };
 
-            // Generate character persona - now with even stricter response guidelines
+            // Generate character persona
             const generateCharacterPersona = () => {
                 const questionLevel = questionFrequency > 50 ? "occasionally" : questionFrequency > 0 ? "rarely" : "never";
                 
@@ -133,9 +123,9 @@ You: "What specific part interests you?" (Let them guide)`;
                 setCharacterPersona(generatedPersona);
             }, [characterName, bookTitle, lessonPrompt, vocabularyWords, questionFrequency]);
 
-            // Peerwave AI integration - no page refresh on auth
+            // Peerwave AI integration
             const callPeerwaveAI = async (message, retryCount = 0) => {
-                setIsLoading(true);
+                setIsProcessing(true);
                 setError("");
 
                 try {
@@ -144,8 +134,7 @@ You: "What specific part interests you?" (Let them guide)`;
                         "Redirect": window.location.pathname + window.location.search,
                     };
 
-                    // Use user token if available
-                    const token = getToken();
+                    const token = localStorage.getItem('peerwave_token');
                     if (token) {
                         headers["Authorization"] = token;
                     }
@@ -157,8 +146,6 @@ You: "What specific part interests you?" (Let them guide)`;
 
                     const models = ['best', 'fastest', 'cheapest'];
                     const currentModel = selectedModel || models[retryCount] || 'best';
-
-                    console.log(`Peerwave API call - Model: ${currentModel}`);
 
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -182,14 +169,13 @@ You: "What specific part interests you?" (Let them guide)`;
                     if (!apiResponse.ok) {
                         const location = apiResponse.headers.get("Location");
                         if (location) {
-                            // Instead of redirecting, show authentication message
-                            setError("Authentication required. Please connect your Peerwave account first.");
-                            setIsLoading(false);
+                            // Authentication expired - reset to auth page
+                            localStorage.removeItem('peerwave_token');
+                            setIsAuthenticated(false);
                             return;
                         }
 
                         if (apiResponse.status === 500 && retryCount < 2) {
-                            console.log(`500 error, retrying with different model...`);
                             await new Promise(resolve => setTimeout(resolve, 2000));
                             return callPeerwaveAI(message, retryCount + 1);
                         }
@@ -198,7 +184,10 @@ You: "What specific part interests you?" (Let them guide)`;
                         if (apiResponse.status === 500) {
                             errorMsg += " - Server temporarily unavailable";
                         } else if (apiResponse.status === 403 || apiResponse.status === 401) {
-                            errorMsg += " - Authentication required";
+                            errorMsg += " - Authentication expired";
+                            localStorage.removeItem('peerwave_token');
+                            setIsAuthenticated(false);
+                            return;
                         } else if (apiResponse.status === 429) {
                             errorMsg += " - Rate limit exceeded";
                         }
@@ -262,8 +251,6 @@ You: "What specific part interests you?" (Let them guide)`;
                     });
 
                 } catch (err) {
-                    console.error('Peerwave Error:', err);
-                    
                     let errorMessage = err.message;
                     if (err.name === 'AbortError') {
                         errorMessage = "Request timed out - Peerwave may be slow to respond";
@@ -276,31 +263,13 @@ You: "What specific part interests you?" (Let them guide)`;
                         !(msg.sender === 'character' && msg.isStreaming && !msg.text)
                     ));
                 } finally {
-                    setIsLoading(false);
-                }
-            };
-
-            // Handle authentication - improved with status refresh
-            const handleAuthenticate = () => {
-                const redirectUrl = encodeURIComponent(window.location.href);
-                window.open(`https://peerwave.ai/auth?redirect=${redirectUrl}`, '_blank');
-            };
-            
-            // Manual refresh authentication status
-            const refreshAuthStatus = () => {
-                const token = getToken();
-                const authenticated = !!token;
-                console.log('Manual auth refresh:', { token: token ? 'present' : 'missing', authenticated });
-                setIsUserAuthenticated(authenticated);
-                
-                if (authenticated) {
-                    setError(""); // Clear any auth-related errors
+                    setIsProcessing(false);
                 }
             };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!userInput.trim() || isLoading) return;
+                if (!userInput.trim() || isProcessing) return;
 
                 const message = userInput.trim();
                 setUserInput("");
@@ -325,56 +294,93 @@ You: "What specific part interests you?" (Let them guide)`;
                 setIsTeacherMode(true);
             };
 
-            // Peerwave Status Component with debugging
-            const PeerwaveStatus = () => (
-                <div className="flex items-center space-x-2 bg-white bg-opacity-10 backdrop-blur-sm rounded-lg px-4 py-2">
-                    <div className="flex items-center space-x-2">
-                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                            P
+            const handleLogout = () => {
+                localStorage.removeItem('peerwave_token');
+                setIsAuthenticated(false);
+                setMessages([]);
+                setCurrentThesis("");
+                setIsTeacherMode(true);
+            };
+
+            // Initial Authentication Page Component
+            const AuthenticationPage = () => (
+                <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
+                    <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-lg w-full text-center">
+                        <div className="mb-8">
+                            <div className="text-6xl mb-4">📚</div>
+                            <h1 className="text-3xl font-bold text-gray-800 mb-4">
+                                Character AI Tutor
+                            </h1>
+                            <p className="text-gray-600 text-lg">
+                                Learn through authentic dialogue with literary characters
+                            </p>
                         </div>
-                        <span className="text-white text-sm font-medium">Peerwave</span>
-                    </div>
-                    
-                    {isUserAuthenticated ? (
-                        <div className="flex items-center space-x-2">
-                            <div className="flex items-center space-x-1 text-green-400">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-xs">Connected</span>
+
+                        <div className="mb-8 p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-100">
+                            <div className="flex items-center justify-center mb-4">
+                                <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
+                                    P
+                                </div>
                             </div>
-                            <button
-                                onClick={refreshAuthStatus}
-                                className="text-xs text-white opacity-75 hover:opacity-100"
-                                title="Refresh connection status"
-                            >
-                                ↻
-                            </button>
+                            <h2 className="text-xl font-semibold text-gray-800 mb-3">
+                                Connect with Peerwave AI
+                            </h2>
+                            <p className="text-gray-600 mb-4">
+                                To start your character conversations, connect with Peerwave - our AI provider that powers authentic character interactions.
+                            </p>
                         </div>
-                    ) : (
-                        <div className="flex items-center space-x-2">
-                            <button
-                                onClick={handleAuthenticate}
-                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                            >
-                                Connect
-                            </button>
-                            <button
-                                onClick={refreshAuthStatus}
-                                className="text-xs text-white opacity-75 hover:opacity-100"
-                                title="Refresh connection status"
-                            >
-                                ↻
-                            </button>
+
+                        <button
+                            onClick={() => {
+                                const redirectUrl = encodeURIComponent(window.location.href);
+                                window.location.href = `https://peerwave.ai/auth?redirect=${redirectUrl}`;
+                            }}
+                            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-xl transition-all transform hover:scale-105 text-lg shadow-lg"
+                        >
+                            🚀 Start Learning with Character AI
+                        </button>
+
+                        <div className="mt-6 pt-6 border-t border-gray-200">
+                            <p className="text-xs text-gray-500 mb-2">
+                                You'll be securely redirected to set up your Peerwave account
+                            </p>
+                            <div className="flex items-center justify-center space-x-4 text-xs text-gray-400">
+                                <span>✓ Secure Authentication</span>
+                                <span>✓ Pay-As-You-Use</span>
+                                <span>✓ No Monthly Fees</span>
+                            </div>
                         </div>
-                    )}
+                    </div>
                 </div>
             );
 
+            // Loading screen
+            if (isLoading) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center">
+                        <div className="text-white text-center">
+                            <div className="text-6xl mb-4 animate-bounce">📚</div>
+                            <h1 className="text-3xl font-bold mb-2">Character AI Tutor</h1>
+                            <div className="flex justify-center space-x-2 mt-4">
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Show authentication page if not authenticated
+            if (!isAuthenticated) {
+                return <AuthenticationPage />;
+            }
+
+            // Main App (only shows when authenticated)
             return (
                 <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800">
                     <div className="container mx-auto p-6 max-w-4xl">
-                        {/* Header with Peerwave Status */}
+                        {/* Header with Logout */}
                         <div className="text-center mb-8">
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex-1"></div>
@@ -387,7 +393,12 @@ You: "What specific part interests you?" (Let them guide)`;
                                     </p>
                                 </div>
                                 <div className="flex-1 flex justify-end">
-                                    <PeerwaveStatus />
+                                    <button
+                                        onClick={handleLogout}
+                                        className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                                    >
+                                        🚪 Logout
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -588,7 +599,7 @@ You: "What specific part interests you?" (Let them guide)`;
                                             </div>
                                         ))}
                                         
-                                        {isLoading && (
+                                        {isProcessing && (
                                             <div className="flex justify-start">
                                                 <div className="bg-gray-200 text-gray-800 px-4 py-3 rounded-lg max-w-xs lg:max-w-md">
                                                     <div className="text-xs opacity-75 mb-1">{characterName}</div>
@@ -614,18 +625,18 @@ You: "What specific part interests you?" (Let them guide)`;
                                                 onChange={(e) => setUserInput(e.target.value)}
                                                 placeholder={`Ask ${characterName} about their experiences...`}
                                                 className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                                disabled={isLoading}
+                                                disabled={isProcessing}
                                             />
                                             <button
                                                 type="submit"
-                                                disabled={isLoading || !userInput.trim()}
+                                                disabled={isProcessing || !userInput.trim()}
                                                 className={`px-6 py-2 font-medium rounded-lg transition-colors ${
-                                                    isLoading || !userInput.trim()
+                                                    isProcessing || !userInput.trim()
                                                         ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                                 }`}
                                             >
-                                                {isLoading ? 'Sending...' : 'Send'}
+                                                {isProcessing ? 'Sending...' : 'Send'}
                                             </button>
                                         </form>
                                     </div>
@@ -651,16 +662,6 @@ You: "What specific part interests you?" (Let them guide)`;
                                 {error && (
                                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
                                         <strong>Error:</strong> {error}
-                                        {error.includes("Authentication") && (
-                                            <div className="mt-2">
-                                                <button
-                                                    onClick={handleAuthenticate}
-                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm mt-2 transition-colors"
-                                                >
-                                                    Connect Peerwave Account
-                                                </button>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
                             </div>
