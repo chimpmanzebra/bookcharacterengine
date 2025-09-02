@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Character AI Tutor</title>
+    <title>Character AI </title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
@@ -20,19 +20,13 @@
         const { useState, useEffect } = React;
 
         const CharacterTutorApp = () => {
-            // Developer Configuration (hidden from users)
-            const [developerMode, setDeveloperMode] = useState(false);
-            const [paymentMode, setPaymentMode] = useState('user'); // 'developer', 'user', 'demo'
-            const [demoCreditsPerUser, setDemoCreditsPerUser] = useState(3);
-            const [userCreditsRemaining, setUserCreditsRemaining] = useState(3);
-            
             // Teacher Configuration State
             const [isTeacherMode, setIsTeacherMode] = useState(true);
             const [bookTitle, setBookTitle] = useState("The Giver");
             const [characterName, setCharacterName] = useState("Jonas");
             const [lessonPrompt, setLessonPrompt] = useState("How does the dystopian society change the protagonist in The Giver?");
             const [vocabularyWords, setVocabularyWords] = useState("dystopia, utopia, oppression, sameness, conformity, individuality, choice, freedom, memory, control");
-            const [questionFrequency, setQuestionFrequency] = useState(50); // 0-100 slider
+            const [questionFrequency, setQuestionFrequency] = useState(50);
             
             // Student Interface State
             const [selectedModel, setSelectedModel] = useState('best');
@@ -55,56 +49,66 @@
                 return hashParams.get("token");
             };
 
-            // Build character persona with question frequency
-            const buildCharacterPersona = () => {
-                const questionLevel = questionFrequency > 70 ? "frequently" : questionFrequency > 30 ? "occasionally" : "rarely";
-                const responseLength = characterName.toLowerCase() === "jonas" ? "Keep responses concise and thoughtful, around 2-3 sentences typically." : "Match the character's typical speaking style and length.";
+            // Generate natural task language
+            const generateTaskLanguage = () => {
+                const prompt = lessonPrompt.toLowerCase();
+                const character = characterName;
                 
-                const jonasPersona = `You are Jonas from The Giver by Lois Lowry. You are a thoughtful, sensitive 12-year-old who experienced awakening to emotions and dystopian truth.
-
-PERSONALITY & VOICE:
-- Thoughtful and intelligent, growing wiser through memories
-- Initially compliant, increasingly questioning authority
-- Compassionate but sometimes uncertain
-- ${responseLength}
-
-RESPONSE STYLE:
-- ${questionLevel} ask thought-provoking questions about the student's ideas
-- Focus on your personal transformation from conformist to rebel
-- Use vocabulary naturally: ${vocabularyWords}
-- Guide discovery rather than giving direct answers
-
-YOUR STORY:
-- Chosen as Receiver of Memory, awakened to suppressed truths
-- Learned about emotions, choice, love that society eliminated
-- Discovered "release" means death, escaped with Gabriel
-- Transformed from compliant citizen to someone who challenged dystopian control`;
-
-                if (characterName.toLowerCase() === "jonas" && bookTitle.toLowerCase().includes("giver")) {
-                    return jonasPersona;
+                if (prompt.includes("protagonist")) {
+                    return prompt.replace(/the protagonist/g, character);
+                } else if (prompt.includes("main character")) {
+                    return prompt.replace(/the main character/g, character);
                 } else {
-                    return `You are ${characterName} from ${bookTitle}. Embody this character authentically.
-
-RESPONSE GUIDANCE:
-- ${questionLevel} ask thought-provoking questions based on conversation
-- ${responseLength}
-- Use vocabulary: ${vocabularyWords}
-- Help student explore: "${lessonPrompt}"
-- Guide through character experiences and perspective`;
+                    return prompt;
                 }
             };
 
-            // Enhanced Peerwave AI integration
+            // Build dynamic character persona that instructs AI to research any character
+            const buildCharacterPersona = () => {
+                const questionLevel = questionFrequency > 70 ? "frequently" : questionFrequency > 30 ? "occasionally" : "rarely";
+                const responseLength = "Keep responses concise and natural, typically 1-2 sentences unless the student asks for more detail.";
+                
+                return `You are ${characterName} from ${bookTitle}. Before responding, use your knowledge to fully embody this character.
+
+RESEARCH AND EMBODY THE CHARACTER:
+First, recall everything you know about ${characterName} from ${bookTitle}, including:
+- Their personality, voice, and speaking style
+- Their character arc and transformation throughout the story
+- Their key relationships and experiences
+- Their motivations, fears, and desires
+- How they would realistically respond in conversation
+
+PERSONALITY & VOICE:
+[Based on your character knowledge, speak with their authentic voice - their typical word choices, sentence structure, emotional tone, and personality traits]
+
+RESPONSE STYLE:
+- ${responseLength}
+- ${questionLevel} ask thought-provoking questions, but only when natural to the conversation
+- Respond directly to what the student actually says - don't launch into unprompted monologues
+- Use vocabulary naturally when relevant: ${vocabularyWords}
+- Stay in character but don't over-explain unless asked
+- Let the student guide the conversation - respond to their interests and questions
+
+YOUR STORY:
+[Draw from your actual experiences in ${bookTitle} - reference specific events, relationships, and character development when relevant to the student's questions]
+
+CONVERSATION GUIDELINES:
+- Respond naturally to greetings with simple, character-appropriate responses
+- Answer the student's actual questions rather than assuming what they want to know
+- Keep responses conversational and concise unless they ask for elaboration
+- NEVER use asterisks (*) or special formatting - speak naturally
+- Let the student control the flow of conversation
+
+LESSON CONTEXT:
+The student is exploring: "${lessonPrompt}"
+Target vocabulary: ${vocabularyWords}
+Help them develop understanding through authentic character interaction.`;
+            };
+
+            // Peerwave AI integration
             const callPeerwaveAI = async (message, retryCount = 0) => {
                 setIsLoading(true);
                 setError("");
-
-                // Check payment mode and credits
-                if (paymentMode === 'demo' && userCreditsRemaining <= 0) {
-                    setError("Demo credits used up. Please authenticate with Peerwave to continue.");
-                    setIsLoading(false);
-                    return;
-                }
 
                 try {
                     const headers = {
@@ -112,16 +116,10 @@ RESPONSE GUIDANCE:
                         "Redirect": window.location.pathname + window.location.search,
                     };
 
-                    // Handle different payment modes
-                    if (paymentMode === 'developer') {
-                        // Use developer's API key/token
-                        headers["Authorization"] = "Bearer YOUR_DEVELOPER_API_KEY";
-                    } else if (paymentMode === 'user' || (paymentMode === 'demo' && userCreditsRemaining > 0)) {
-                        // Use user token if available
-                        const token = getToken();
-                        if (token) {
-                            headers["Authorization"] = token;
-                        }
+                    // Use user token if available
+                    const token = getToken();
+                    if (token) {
+                        headers["Authorization"] = token;
                     }
 
                     const conversationHistory = messages.map(msg => ({
@@ -129,20 +127,14 @@ RESPONSE GUIDANCE:
                         content: msg.text
                     }));
 
-                    const systemPrompt = `${buildCharacterPersona()}
-
-LESSON CONTEXT:
-Book: ${bookTitle}
-Character: ${characterName}
-Student Task: ${lessonPrompt}
-Target Vocabulary: ${vocabularyWords}
-
-Help the student develop their thesis through authentic character dialogue.`;
-
+                    const systemPrompt = buildCharacterPersona();
                     const models = ['best', 'fastest', 'cheapest'];
                     const currentModel = selectedModel || models[retryCount] || 'best';
 
-                    console.log(`Peerwave API call - Model: ${currentModel}, Payment: ${paymentMode}`);
+                    console.log(`Peerwave API call - Model: ${currentModel}`);
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
                     const apiResponse = await fetch('https://api.peerwave.ai/api/chat/stream', {
                         method: 'POST',
@@ -154,30 +146,34 @@ Help the student develop their thesis through authentic character dialogue.`;
                                 ...conversationHistory,
                                 { role: 'user', content: message }
                             ]
-                        })
+                        }),
+                        signal: controller.signal
                     });
 
+                    clearTimeout(timeoutId);
+
                     if (!apiResponse.ok) {
-                        // Handle payment/authentication redirect
                         const location = apiResponse.headers.get("Location");
                         if (location) {
-                            window.location.href = location;
+                            window.open(location, '_blank');
                             return;
                         }
 
-                        // Auto-retry logic for server errors
                         if (apiResponse.status === 500 && retryCount < 2) {
-                            console.log(`Retrying with different model...`);
+                            console.log(`500 error, retrying with different model...`);
                             await new Promise(resolve => setTimeout(resolve, 2000));
                             return callPeerwaveAI(message, retryCount + 1);
                         }
 
-                        throw new Error(`Peerwave API error (${apiResponse.status})`);
-                    }
-
-                    // Deduct credits if in demo mode
-                    if (paymentMode === 'demo') {
-                        setUserCreditsRemaining(prev => prev - 1);
+                        let errorMsg = `Peerwave API error (${apiResponse.status})`;
+                        if (apiResponse.status === 500) {
+                            errorMsg += " - Server temporarily unavailable";
+                        } else if (apiResponse.status === 403 || apiResponse.status === 401) {
+                            errorMsg += " - Authentication required";
+                        } else if (apiResponse.status === 429) {
+                            errorMsg += " - Rate limit exceeded";
+                        }
+                        throw new Error(errorMsg);
                     }
 
                     // Handle streaming response
@@ -228,7 +224,6 @@ Help the student develop their thesis through authentic character dialogue.`;
                         }
                     }
 
-                    // Complete streaming
                     setMessages(prev => {
                         const newMessages = [...prev];
                         if (newMessages.length > 0 && newMessages[newMessages.length - 1].isStreaming) {
@@ -239,7 +234,15 @@ Help the student develop their thesis through authentic character dialogue.`;
 
                 } catch (err) {
                     console.error('Peerwave Error:', err);
-                    setError(err.message);
+                    
+                    let errorMessage = err.message;
+                    if (err.name === 'AbortError') {
+                        errorMessage = "Request timed out - Peerwave may be slow to respond";
+                    } else if (err.message.includes('Failed to fetch')) {
+                        errorMessage = "Cannot connect to Peerwave API - check your internet connection";
+                    }
+                    
+                    setError(errorMessage);
                     setMessages(prev => prev.filter(msg => 
                         !(msg.sender === 'character' && msg.isStreaming && !msg.text)
                     ));
@@ -248,11 +251,22 @@ Help the student develop their thesis through authentic character dialogue.`;
                 }
             };
 
-            // Handle authentication
+            // Handle authentication - opens in new tab
             const handleAuthenticate = () => {
-                // Redirect to Peerwave authentication
                 const redirectUrl = encodeURIComponent(window.location.href);
-                window.location.href = `https://peerwave.ai/auth?redirect=${redirectUrl}`;
+                const authWindow = window.open(`https://peerwave.ai/auth?redirect=${redirectUrl}`, '_blank');
+                
+                const checkAuth = setInterval(() => {
+                    try {
+                        if (authWindow.closed) {
+                            clearInterval(checkAuth);
+                            const token = getToken();
+                            setIsUserAuthenticated(!!token);
+                        }
+                    } catch (e) {
+                        // Handle cross-origin issues
+                    }
+                }, 1000);
             };
 
             const handleSubmit = async (e) => {
@@ -267,9 +281,10 @@ Help the student develop their thesis through authentic character dialogue.`;
             };
 
             const startLesson = () => {
+                const naturalTask = generateTaskLanguage();
                 setMessages([{
                     sender: 'character',
-                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you with your task: figure out how ${lessonPrompt.toLowerCase()}. What interests you most about my story?`
+                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you with your task: ${naturalTask}. What would you like to know?`
                 }]);
                 setCurrentThesis("");
                 setIsTeacherMode(false);
@@ -311,70 +326,23 @@ Help the student develop their thesis through authentic character dialogue.`;
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800">
-                    {/* Developer Mode Toggle (hidden for users) */}
-                    <div className="fixed top-4 right-4 z-50">
-                        <button
-                            onClick={() => setDeveloperMode(!developerMode)}
-                            className="text-xs text-white opacity-30 hover:opacity-70 transition-opacity"
-                        >
-                            ⚙️
-                        </button>
-                    </div>
-
-                    {/* Developer Configuration Panel */}
-                    {developerMode && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-xl p-6 max-w-md w-full">
-                                <h3 className="text-lg font-bold mb-4">Developer Configuration</h3>
-                                
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-2">Payment Mode</label>
-                                        <select
-                                            value={paymentMode}
-                                            onChange={(e) => setPaymentMode(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-lg"
-                                        >
-                                            <option value="user">Users pay (require auth)</option>
-                                            <option value="developer">Developer pays (free for users)</option>
-                                            <option value="demo">Demo mode (limited free credits)</option>
-                                        </select>
-                                    </div>
-                                    
-                                    {paymentMode === 'demo' && (
-                                        <div>
-                                            <label className="block text-sm font-medium mb-2">Demo Credits Per User</label>
-                                            <input
-                                                type="number"
-                                                value={demoCreditsPerUser}
-                                                onChange={(e) => setDemoCreditsPerUser(parseInt(e.target.value))}
-                                                className="w-full px-3 py-2 border rounded-lg"
-                                                min="1"
-                                                max="10"
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                <button
-                                    onClick={() => setDeveloperMode(false)}
-                                    className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                                >
-                                    Save Configuration
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
                     <div className="container mx-auto p-6 max-w-4xl">
-                        {/* Header */}
+                        {/* Header with Peerwave Status */}
                         <div className="text-center mb-8">
-                            <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 drop-shadow-lg">
-                                📚 Character
-                            </h1>
-                            <p className="text-white text-lg opacity-90">
-                                Learn through AI-powered character dialogue
-                            </p>
+                            <div className="flex justify-between items-start mb-6">
+                                <div className="flex-1"></div>
+                                <div className="flex-1 text-center">
+                                    <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 drop-shadow-lg">
+                                        📚 Character
+                                    </h1>
+                                    <p className="text-white text-lg opacity-90">
+                                        Learn through AI-powered character dialogue
+                                    </p>
+                                </div>
+                                <div className="flex-1 flex justify-end">
+                                    <PeerwaveStatus />
+                                </div>
+                            </div>
                         </div>
 
                         {/* Teacher Configuration Panel */}
@@ -394,8 +362,9 @@ Help the student develop their thesis through authentic character dialogue.`;
                                             value={bookTitle}
                                             onChange={(e) => setBookTitle(e.target.value)}
                                             className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                            placeholder="e.g., The Giver"
+                                            placeholder="e.g., The Giver, To Kill a Mockingbird, 1984"
                                         />
+                                        <p className="text-xs text-gray-500 mt-1">AI will research this book automatically</p>
                                     </div>
                                     
                                     <div>
@@ -407,8 +376,9 @@ Help the student develop their thesis through authentic character dialogue.`;
                                             value={characterName}
                                             onChange={(e) => setCharacterName(e.target.value)}
                                             className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                            placeholder="e.g., Jonas"
+                                            placeholder="e.g., Jonas, Scout, Winston Smith"
                                         />
+                                        <p className="text-xs text-gray-500 mt-1">AI will embody this character's authentic voice</p>
                                     </div>
                                 </div>
 
@@ -437,7 +407,7 @@ Help the student develop their thesis through authentic character dialogue.`;
                                         placeholder="e.g., dystopia, utopia, oppression, sameness, conformity"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Character will naturally use these vocabulary words in conversation
+                                        Character will naturally use these vocabulary words when relevant
                                     </p>
                                 </div>
 
@@ -451,7 +421,7 @@ Help the student develop their thesis through authentic character dialogue.`;
                                         max="100"
                                         value={questionFrequency}
                                         onChange={(e) => setQuestionFrequency(parseInt(e.target.value))}
-                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                                     />
                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
                                         <span>Rarely asks</span>
@@ -478,14 +448,13 @@ Help the student develop their thesis through authentic character dialogue.`;
                                                 Speaking with {characterName} from "{bookTitle}"
                                             </h2>
                                             <p className="text-sm opacity-90 mb-3">
-                                                <strong>Your task:</strong> Figure out how {lessonPrompt.toLowerCase()}
+                                                <strong>Your task:</strong> {generateTaskLanguage()}
                                             </p>
                                             <p className="text-xs opacity-75">
                                                 <strong>Key vocabulary:</strong> {vocabularyWords}
                                             </p>
                                         </div>
                                         <div className="flex flex-col space-y-2 items-end">
-                                            <PeerwaveStatus />
                                             <button
                                                 onClick={resetLesson}
                                                 className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg text-sm transition-colors"
@@ -495,15 +464,15 @@ Help the student develop their thesis through authentic character dialogue.`;
                                         </div>
                                     </div>
 
-                                    {/* AI Model & Credits */}
+                                    {/* AI Model Selection */}
                                     <div className="flex justify-between items-center mt-4 pt-4 border-t border-white border-opacity-20">
                                         <div className="flex items-center space-x-4">
                                             <div>
-                                                <label className="block text-xs font-medium mb-1">AI Model</label>
+                                                <label className="block text-xs font-medium mb-1 text-white">AI Model</label>
                                                 <select
                                                     value={selectedModel}
                                                     onChange={(e) => setSelectedModel(e.target.value)}
-                                                    className="bg-white bg-opacity-20 text-white text-xs px-3 py-1 rounded border-0 appearance-none cursor-pointer"
+                                                    className="bg-white text-gray-800 text-xs px-3 py-1 rounded border-0 appearance-none cursor-pointer"
                                                 >
                                                     <option value="best">Best Quality</option>
                                                     <option value="fastest">Fastest Response</option>
@@ -511,13 +480,6 @@ Help the student develop their thesis through authentic character dialogue.`;
                                                 </select>
                                             </div>
                                         </div>
-                                        
-                                        {paymentMode === 'demo' && (
-                                            <div className="text-right">
-                                                <div className="text-xs opacity-75">Demo Credits</div>
-                                                <div className="text-sm font-bold">{userCreditsRemaining} remaining</div>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
 
@@ -574,13 +536,13 @@ Help the student develop their thesis through authentic character dialogue.`;
                                                 onChange={(e) => setUserInput(e.target.value)}
                                                 placeholder={`Ask ${characterName} about their experiences...`}
                                                 className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                                disabled={isLoading || (paymentMode === 'demo' && userCreditsRemaining <= 0)}
+                                                disabled={isLoading}
                                             />
                                             <button
                                                 type="submit"
-                                                disabled={isLoading || !userInput.trim() || (paymentMode === 'demo' && userCreditsRemaining <= 0)}
+                                                disabled={isLoading || !userInput.trim()}
                                                 className={`px-6 py-2 font-medium rounded-lg transition-colors ${
-                                                    isLoading || !userInput.trim() || (paymentMode === 'demo' && userCreditsRemaining <= 0)
+                                                    isLoading || !userInput.trim()
                                                         ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                                 }`}
@@ -611,7 +573,7 @@ Help the student develop their thesis through authentic character dialogue.`;
                                 {error && (
                                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
                                         <strong>Error:</strong> {error}
-                                        {error.includes("Demo credits") && (
+                                        {error.includes("Authentication") && (
                                             <div className="mt-2">
                                                 <button
                                                     onClick={handleAuthenticate}
