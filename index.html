@@ -73,6 +73,8 @@ RESPONSE STYLE:
 - Focus on your personal transformation from conformist to rebel
 - Use vocabulary naturally: ${vocabularyWords}
 - Guide discovery rather than giving direct answers
+- NEVER use asterisks (*) or special formatting - speak naturally
+- Avoid markdown formatting or emphasis marks
 
 YOUR STORY:
 - Chosen as Receiver of Memory, awakened to suppressed truths
@@ -90,11 +92,13 @@ RESPONSE GUIDANCE:
 - ${responseLength}
 - Use vocabulary: ${vocabularyWords}
 - Help student explore: "${lessonPrompt}"
-- Guide through character experiences and perspective`;
+- Guide through character experiences and perspective
+- NEVER use asterisks (*) or special formatting - speak naturally
+- Avoid markdown formatting or emphasis marks`;
                 }
             };
 
-            // Enhanced Peerwave AI integration
+            // Enhanced Peerwave AI integration with better error handling
             const callPeerwaveAI = async (message, retryCount = 0) => {
                 setIsLoading(true);
                 setError("");
@@ -114,10 +118,8 @@ RESPONSE GUIDANCE:
 
                     // Handle different payment modes
                     if (paymentMode === 'developer') {
-                        // Use developer's API key/token
                         headers["Authorization"] = "Bearer YOUR_DEVELOPER_API_KEY";
                     } else if (paymentMode === 'user' || (paymentMode === 'demo' && userCreditsRemaining > 0)) {
-                        // Use user token if available
                         const token = getToken();
                         if (token) {
                             headers["Authorization"] = token;
@@ -144,6 +146,9 @@ Help the student develop their thesis through authentic character dialogue.`;
 
                     console.log(`Peerwave API call - Model: ${currentModel}, Payment: ${paymentMode}`);
 
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
                     const apiResponse = await fetch('https://api.peerwave.ai/api/chat/stream', {
                         method: 'POST',
                         headers,
@@ -154,25 +159,36 @@ Help the student develop their thesis through authentic character dialogue.`;
                                 ...conversationHistory,
                                 { role: 'user', content: message }
                             ]
-                        })
+                        }),
+                        signal: controller.signal
                     });
+
+                    clearTimeout(timeoutId);
 
                     if (!apiResponse.ok) {
                         // Handle payment/authentication redirect
                         const location = apiResponse.headers.get("Location");
                         if (location) {
-                            window.location.href = location;
+                            window.open(location, '_blank');
                             return;
                         }
 
                         // Auto-retry logic for server errors
                         if (apiResponse.status === 500 && retryCount < 2) {
-                            console.log(`Retrying with different model...`);
+                            console.log(`500 error, retrying with different model...`);
                             await new Promise(resolve => setTimeout(resolve, 2000));
                             return callPeerwaveAI(message, retryCount + 1);
                         }
 
-                        throw new Error(`Peerwave API error (${apiResponse.status})`);
+                        let errorMsg = `Peerwave API error (${apiResponse.status})`;
+                        if (apiResponse.status === 500) {
+                            errorMsg += " - Server temporarily unavailable";
+                        } else if (apiResponse.status === 403 || apiResponse.status === 401) {
+                            errorMsg += " - Authentication required";
+                        } else if (apiResponse.status === 429) {
+                            errorMsg += " - Rate limit exceeded, try again shortly";
+                        }
+                        throw new Error(errorMsg);
                     }
 
                     // Deduct credits if in demo mode
@@ -239,7 +255,15 @@ Help the student develop their thesis through authentic character dialogue.`;
 
                 } catch (err) {
                     console.error('Peerwave Error:', err);
-                    setError(err.message);
+                    
+                    let errorMessage = err.message;
+                    if (err.name === 'AbortError') {
+                        errorMessage = "Request timed out - Peerwave may be slow to respond";
+                    } else if (err.message.includes('Failed to fetch')) {
+                        errorMessage = "Cannot connect to Peerwave API - check your internet connection";
+                    }
+                    
+                    setError(errorMessage);
                     setMessages(prev => prev.filter(msg => 
                         !(msg.sender === 'character' && msg.isStreaming && !msg.text)
                     ));
@@ -248,11 +272,22 @@ Help the student develop their thesis through authentic character dialogue.`;
                 }
             };
 
-            // Handle authentication
-            const handleAuthenticate = () => {
-                // Redirect to Peerwave authentication
-                const redirectUrl = encodeURIComponent(window.location.href);
-                window.location.href = `https://peerwave.ai/auth?redirect=${redirectUrl}`;
+            // Handle authentication - opens in new tab
+            // Generate natural task language
+            const generateTaskLanguage = () => {
+                const prompt = lessonPrompt.toLowerCase();
+                const character = characterName;
+                
+                // Transform "How does the dystopian society change the protagonist in The Giver?" 
+                // into "how does the dystopian society change Jonas in The Giver?"
+                if (prompt.includes("protagonist")) {
+                    return prompt.replace(/the protagonist/g, character);
+                } else if (prompt.includes("main character")) {
+                    return prompt.replace(/the main character/g, character);
+                } else {
+                    // For other formats, just return the prompt as-is
+                    return prompt;
+                }
             };
 
             const handleSubmit = async (e) => {
@@ -267,9 +302,10 @@ Help the student develop their thesis through authentic character dialogue.`;
             };
 
             const startLesson = () => {
+                const naturalTask = generateTaskLanguage();
                 setMessages([{
                     sender: 'character',
-                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you with your task: figure out how ${lessonPrompt.toLowerCase()}. What interests you most about my story?`
+                    text: `Hello! I'm ${characterName} from ${bookTitle}. I'm here to help you with your task: ${naturalTask}. What interests you most about my story?`
                 }]);
                 setCurrentThesis("");
                 setIsTeacherMode(false);
@@ -367,14 +403,22 @@ Help the student develop their thesis through authentic character dialogue.`;
                     )}
 
                     <div className="container mx-auto p-6 max-w-4xl">
-                        {/* Header */}
+                        {/* Header with Peerwave Status */}
                         <div className="text-center mb-8">
-                            <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 drop-shadow-lg">
-                                📚 Character
-                            </h1>
-                            <p className="text-white text-lg opacity-90">
-                                Learn through AI-powered character dialogue
-                            </p>
+                            <div className="flex justify-between items-start mb-6">
+                                <div className="flex-1"></div>
+                                <div className="flex-1 text-center">
+                                    <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 drop-shadow-lg">
+                                        📚 Character
+                                    </h1>
+                                    <p className="text-white text-lg opacity-90">
+                                        Learn through AI-powered character dialogue
+                                    </p>
+                                </div>
+                                <div className="flex-1 flex justify-end">
+                                    <PeerwaveStatus />
+                                </div>
+                            </div>
                         </div>
 
                         {/* Teacher Configuration Panel */}
@@ -478,7 +522,7 @@ Help the student develop their thesis through authentic character dialogue.`;
                                                 Speaking with {characterName} from "{bookTitle}"
                                             </h2>
                                             <p className="text-sm opacity-90 mb-3">
-                                                <strong>Your task:</strong> Figure out how {lessonPrompt.toLowerCase()}
+                                                <strong>Your task:</strong> {generateTaskLanguage()}
                                             </p>
                                             <p className="text-xs opacity-75">
                                                 <strong>Key vocabulary:</strong> {vocabularyWords}
@@ -503,7 +547,7 @@ Help the student develop their thesis through authentic character dialogue.`;
                                                 <select
                                                     value={selectedModel}
                                                     onChange={(e) => setSelectedModel(e.target.value)}
-                                                    className="bg-white bg-opacity-20 text-white text-xs px-3 py-1 rounded border-0 appearance-none cursor-pointer"
+                                                    className="bg-white text-gray-800 text-xs px-3 py-1 rounded border-0 appearance-none cursor-pointer"
                                                 >
                                                     <option value="best">Best Quality</option>
                                                     <option value="fastest">Fastest Response</option>
