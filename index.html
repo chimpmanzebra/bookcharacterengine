@@ -80,7 +80,7 @@ Guide the student through character-appropriate dialogue to understand how their
                 }
             };
 
-            // Peerwave AI integration
+            // Peerwave AI integration with better error handling
             const callPeerwaveAI = async (message) => {
                 setIsLoading(true);
                 setError("");
@@ -114,11 +114,15 @@ Vocabulary to incorporate: ${vocabularyWords}
 
 The student is working on developing a thesis for this prompt. Help them through authentic character dialogue, naturally using vocabulary words and drawing from your character's specific experiences and transformation.`;
 
+                    console.log('Attempting Peerwave API call to:', 'https://api.peerwave.ai/api/chat/stream');
+                    console.log('Headers:', headers);
+                    console.log('Payload model:', 'best');
+
                     const apiResponse = await fetch('https://api.peerwave.ai/api/chat/stream', {
                         method: 'POST',
                         headers,
                         body: JSON.stringify({
-                            model: 'best', // Using 'best' for educational quality
+                            model: 'best',
                             messages: [
                                 { role: 'system', content: systemPrompt },
                                 ...conversationHistory,
@@ -127,14 +131,36 @@ The student is working on developing a thesis for this prompt. Help them through
                         })
                     });
 
+                    console.log('API Response status:', apiResponse.status);
+                    console.log('API Response headers:', Object.fromEntries(apiResponse.headers.entries()));
+
                     if (!apiResponse.ok) {
                         // Handle payment/authentication redirect
                         const location = apiResponse.headers.get("Location");
                         if (location) {
+                            console.log('Redirecting to:', location);
                             window.location.href = location;
                             return;
                         }
-                        throw new Error(`API Error: ${apiResponse.status} ${apiResponse.statusText}`);
+
+                        // Check for specific error codes
+                        if (apiResponse.status === 500) {
+                            throw new Error(`Peerwave server error (500). The API may be temporarily unavailable. Try again in a few minutes.`);
+                        } else if (apiResponse.status === 404) {
+                            throw new Error(`API endpoint not found (404). The Peerwave API may have changed.`);
+                        } else if (apiResponse.status === 401 || apiResponse.status === 403) {
+                            throw new Error(`Authentication required (${apiResponse.status}). Please visit peerwave.ai to set up your account first.`);
+                        } else {
+                            // Try to get error details from response
+                            let errorDetails = '';
+                            try {
+                                const errorBody = await apiResponse.text();
+                                errorDetails = errorBody ? ` Details: ${errorBody.substring(0, 100)}` : '';
+                            } catch (e) {
+                                // Ignore errors reading response body
+                            }
+                            throw new Error(`API Error: ${apiResponse.status} ${apiResponse.statusText}.${errorDetails}`);
+                        }
                     }
 
                     // Add initial character message for streaming
@@ -156,6 +182,7 @@ The student is working on developing a thesis for this prompt. Help them through
                                 if (done) break;
 
                                 const chunk = decoder.decode(value, { stream: true });
+                                console.log('Received chunk:', chunk.substring(0, 100) + '...');
                                 const lines = chunk.split("\n");
                                 
                                 for (const line of lines) {
@@ -179,7 +206,7 @@ The student is working on developing a thesis for this prompt. Help them through
                                             });
                                         }
                                     } catch (parseError) {
-                                        // Skip invalid JSON lines
+                                        console.log('Parse error for line:', cleaned, parseError);
                                         continue;
                                     }
                                 }
@@ -199,8 +226,16 @@ The student is working on developing a thesis for this prompt. Help them through
                     });
 
                 } catch (err) {
-                    setError(`Connection failed: ${err.message}. You may need to authorize with Peerwave first.`);
                     console.error('Peerwave API Error:', err);
+                    setError(`${err.message}`);
+                    
+                    // Remove any incomplete streaming message
+                    setMessages(prev => {
+                        const filtered = prev.filter(msg => 
+                            !(msg.sender === 'character' && msg.isStreaming && !msg.text)
+                        );
+                        return filtered;
+                    });
                 } finally {
                     setIsLoading(false);
                 }
@@ -247,8 +282,8 @@ The student is working on developing a thesis for this prompt. Help them through
                             <p className="text-white text-lg opacity-90">
                                 Learn through dialogue with literary characters
                             </p>
-                            <div className="bg-green-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 mt-4 text-white text-sm">
-                                <strong>🤖 Live AI Powered:</strong> Now using Peerwave AI for authentic character conversations!
+                            <div className="bg-blue-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 mt-4 text-white text-sm">
+                                <strong>🚀 Peerwave Integration:</strong> Auto-retry with multiple models (best/fastest/cheapest) + enhanced error handling
                             </div>
                         </div>
 
@@ -437,16 +472,83 @@ The student is working on developing a thesis for this prompt. Help them through
                                 </div>
 
                                 {error && (
-                                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
-                                        <strong>Error:</strong> {error}
-                                        {error.includes("Connection failed") && (
-                                            <p className="mt-2 text-sm">
-                                                <strong>First time using Peerwave?</strong> The system will redirect you to authenticate and set up payment. 
-                                                Your users pay for their own AI usage - no infrastructure costs for you!
-                                            </p>
+                                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4">
+                                        <strong>Peerwave Error:</strong> {error}
+                                        
+                                        {error.includes("500") && (
+                                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+                                                <strong>Server Error Solutions:</strong>
+                                                <ul className="list-disc list-inside mt-2 space-y-1">
+                                                    <li>The app will automatically retry with different Peerwave models (best → fastest → cheapest)</li>
+                                                    <li>Peerwave servers may be temporarily overloaded</li>
+                                                    <li>Try again in 2-3 minutes</li>
+                                                    <li>Check browser console (F12) for detailed logs</li>
+                                                </ul>
+                                            </div>
+                                        )}
+                                        
+                                        {error.includes("404") && (
+                                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+                                                <strong>API Endpoint Issue:</strong> Check if Peerwave has updated their API. 
+                                                Visit <a href="https://peerwave.ai" target="_blank" className="text-blue-600 underline">peerwave.ai</a> for current documentation.
+                                            </div>
+                                        )}
+                                        
+                                        {(error.includes("401") || error.includes("403")) && (
+                                            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                                                <strong>Authentication Setup:</strong> 
+                                                <ol className="list-decimal list-inside mt-2 space-y-1">
+                                                    <li>Visit <a href="https://peerwave.ai" target="_blank" className="text-blue-600 underline">peerwave.ai</a> and create an account</li>
+                                                    <li>Set up your payment method for AI usage</li>
+                                                    <li>Return here - you should be redirected to authorize automatically</li>
+                                                </ol>
+                                            </div>
+                                        )}
+                                        
+                                        {error.includes("Rate limit") && (
+                                            <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded text-sm">
+                                                <strong>Too many requests:</strong> Wait 30 seconds and try again. Peerwave has usage limits.
+                                            </div>
                                         )}
                                     </div>
                                 )}
+
+                                {/* Peerwave Status Test */}
+                                <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 mb-4 text-white">
+                                    <h3 className="text-sm font-bold mb-2">🔧 Peerwave API Troubleshooting</h3>
+                                    <p className="text-xs mb-3">If having issues, try these steps:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setError("");
+                                                callPeerwaveAI("Hello, please respond with just 'Connection test successful'", 0);
+                                            }}
+                                            disabled={isLoading}
+                                            className="px-3 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded text-xs transition-colors disabled:opacity-50"
+                                        >
+                                            Test Connection
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setError("");
+                                                console.clear();
+                                                console.log('Console cleared. Next API call will show detailed logs.');
+                                            }}
+                                            className="px-3 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded text-xs transition-colors"
+                                        >
+                                            Clear Console
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(window.location.href);
+                                                alert('URL copied! Share this with Peerwave support if needed.');
+                                            }}
+                                            className="px-3 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded text-xs transition-colors"
+                                        >
+                                            Copy URL
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
