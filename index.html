@@ -145,10 +145,9 @@ You: "What specific part interests you?" (Let them guide)`;
             // Authentication functions
             const handleAuthentication = () => {
                 console.log("Starting authentication flow");
-                const currentUrl = window.location.origin + window.location.pathname;
-                const redirectUrl = encodeURIComponent(currentUrl);
-                console.log("Redirect URL:", redirectUrl);
-                const authUrl = `https://peerwave.ai/auth?redirect=${redirectUrl}`;
+                // Fixed: Use the correct Peerwave API endpoint and current page URL
+                const currentPage = window.location.toString();
+                const authUrl = `https://api.peerwave.ai/api/third-party/auth?redirect=${encodeURIComponent(currentPage)}`;
                 console.log("Auth URL:", authUrl);
                 window.location.href = authUrl;
             };
@@ -210,12 +209,6 @@ You: "What specific part interests you?" (Let them guide)`;
 
             // Peerwave AI integration
             const callPeerwaveAI = async (message, retryCount = 0) => {
-                // Check authentication before making API call
-                if (!isAuthenticated) {
-                    setError("Please connect to Peerwave AI first to start chatting");
-                    return;
-                }
-
                 setIsProcessing(true);
                 setError("");
 
@@ -260,10 +253,9 @@ You: "What specific part interests you?" (Let them guide)`;
                     if (!apiResponse.ok) {
                         const location = apiResponse.headers.get("Location");
                         if (location) {
-                            console.log("Authentication expired, need to re-authenticate");
-                            localStorage.removeItem('peerwave_token');
-                            setIsAuthenticated(false);
-                            setError("Authentication expired. Please reconnect to Peerwave AI.");
+                            console.log("Authentication required or expired, redirecting to:", location);
+                            // For anonymous users who hit credit limits, redirect to auth
+                            window.location.href = location;
                             return;
                         }
 
@@ -582,7 +574,6 @@ You: "What specific part interests you?" (Let them guide)`;
                                                     value={selectedModel}
                                                     onChange={(e) => setSelectedModel(e.target.value)}
                                                     className="bg-white text-gray-800 text-xs px-3 py-1 rounded border-0 appearance-none cursor-pointer"
-                                                    disabled={!isAuthenticated}
                                                 >
                                                     <option value="best">Best Quality</option>
                                                     <option value="fastest">Fastest Response</option>
