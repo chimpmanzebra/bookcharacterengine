@@ -182,12 +182,28 @@ You: "What specific part interests you?" (Let them guide)`;
                     <div className="flex items-center space-x-2 text-sm">
                         <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
                         <span className="text-white opacity-90">Connect to AI to chat</span>
-                        <button
-                            onClick={handleAuthentication}
-                            className="ml-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-                        >
-                            Connect Peerwave AI
-                        </button>
+                        <div className="ml-2 space-x-1">
+                            <button
+                                onClick={handleAuthentication}
+                                className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                            >
+                                Connect Peerwave
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const manualToken = prompt("If Peerwave redirect isn't working, paste your token here:");
+                                    if (manualToken && manualToken.trim()) {
+                                        console.log("Manual token entered");
+                                        localStorage.setItem('peerwave_token', manualToken.trim());
+                                        setIsAuthenticated(true);
+                                    }
+                                }}
+                                className="text-xs bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded"
+                                title="Manual token entry"
+                            >
+                                🔧
+                            </button>
+                        </div>
                     </div>
                 );
             };
@@ -582,17 +598,13 @@ You: "What specific part interests you?" (Let them guide)`;
                                 <div className="bg-white rounded-xl shadow-2xl">
                                     {/* Messages */}
                                     <div className="h-96 overflow-y-auto p-6 space-y-4">
-                                        {!isAuthenticated && messages.length === 0 && (
+                                        {messages.length === 0 && (
                                             <div className="text-center text-gray-500 mt-20">
-                                                <div className="text-4xl mb-4">🔗</div>
+                                                <div className="text-4xl mb-4">💬</div>
                                                 <p className="text-lg mb-2">Ready to chat with {characterName}?</p>
-                                                <p className="text-sm mb-4">Connect to Peerwave AI to start your conversation</p>
-                                                <button
-                                                    onClick={handleAuthentication}
-                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
-                                                >
-                                                    Connect Peerwave AI
-                                                </button>
+                                                <p className="text-sm mb-4">
+                                                    Start chatting for free! {isAuthenticated ? "You're signed in." : "Anonymous usage available - sign up when you need more credits."}
+                                                </p>
                                             </div>
                                         )}
 
@@ -643,15 +655,15 @@ You: "What specific part interests you?" (Let them guide)`;
                                                 type="text"
                                                 value={userInput}
                                                 onChange={(e) => setUserInput(e.target.value)}
-                                                placeholder={isAuthenticated ? `Ask ${characterName} about their experiences...` : "Connect to AI to start chatting..."}
+                                                placeholder={`Ask ${characterName} about their experiences...`}
                                                 className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                                                disabled={isProcessing || !isAuthenticated}
+                                                disabled={isProcessing}
                                             />
                                             <button
                                                 type="submit"
-                                                disabled={isProcessing || !userInput.trim() || !isAuthenticated}
+                                                disabled={isProcessing || !userInput.trim()}
                                                 className={`px-6 py-2 font-medium rounded-lg transition-colors ${
-                                                    isProcessing || !userInput.trim() || !isAuthenticated
+                                                    isProcessing || !userInput.trim()
                                                         ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                                 }`}
@@ -659,6 +671,11 @@ You: "What specific part interests you?" (Let them guide)`;
                                                 {isProcessing ? 'Sending...' : 'Send'}
                                             </button>
                                         </form>
+                                        {!isAuthenticated && (
+                                            <p className="text-xs text-gray-500 mt-2 text-center">
+                                                Using anonymous access - you'll be prompted to sign up when your free credits run out
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
